@@ -1,3 +1,7 @@
 .ipynb_checkpoints/
 analysis.ipynb
 figure.png
+data/
+results/
+__pycache__/
+*.pyc

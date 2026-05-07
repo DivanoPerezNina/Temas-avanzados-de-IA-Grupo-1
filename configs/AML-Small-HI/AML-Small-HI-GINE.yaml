@@ -19,21 +19,21 @@ dataset:
   edge_encoder_name: Hetero_Raw
   edge_encoder_bn: False
 num_threads: 24
-num_workers: 18
+num_workers: 0
 train:
   mode: custom
   sampler: link_neighbor
   neighbor_sizes: [50, 50] # 50 * 2
-  iter_per_epoch: 256
+  iter_per_epoch: 64
   batch_size: 2048
   eval_period: 4
   ckpt_period: 100
   tqdm: True
-  persistent_workers: True
-  pin_memory: True
+  persistent_workers: False
+  pin_memory: False
 val:
   sampler: link_neighbor
-  iter_per_epoch: 128
+  iter_per_epoch: 32
   tqdm: True
 model:
   type: HomoGNNEdgeModel
@@ -59,7 +59,7 @@ optim:
   optimizer: adamW
   weight_decay: 1e-5
   base_lr: 0.005 
-  max_epoch: 500
+  max_epoch: 40
   scheduler: cosine_with_warmup
   num_warmup_epochs: 5
 #optim:

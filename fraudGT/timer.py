@@ -35,6 +35,7 @@ class RuntimeStatisticsCUDA:
         self.stat_lists_cuda = dict()
         self.name = name
         self.epoch_counter = 0
+        self.cuda_available = torch.cuda.is_available()
         self.cuda_timer_lists = dict()
         self.last_event = None
         self.cuda_times = dict()
@@ -42,12 +43,18 @@ class RuntimeStatisticsCUDA:
         self.cuda_timer_end = dict()
 
     def start_epoch(self):
+        if not self.cuda_available:
+            return
         self.epoch_counter += 1
 
     def get_last_event(self):
+        if not self.cuda_available:
+            return None
         return self.last_event
 
     def start_region(self, region_name, use_event=None):
+        if not self.cuda_available:
+            return
         if not runtime_statistics_enabled:
             return
         if use_event is not None:
@@ -60,6 +67,8 @@ class RuntimeStatisticsCUDA:
             self.cuda_timer_start[region_name].record()
 
     def end_region(self, region_name, use_event=None):
+        if not self.cuda_available:
+            return
         if not runtime_statistics_enabled:
             return
         if use_event is not None:
@@ -76,6 +85,8 @@ class RuntimeStatisticsCUDA:
             (self.cuda_timer_start[region_name], self.cuda_timer_end[region_name]))
 
     def end_epoch(self):
+        if not self.cuda_available:
+            return
         torch.cuda.synchronize()
         for x in self.cuda_timer_lists.keys():
             total = self.cuda_timer_lists[x][0][0].elapsed_time(
@@ -91,6 +102,8 @@ class RuntimeStatisticsCUDA:
         self.cuda_timer_end = dict()
 
     def report_stats(self, display_keys=None):
+        if not self.cuda_available:
+            return "[]"
         rows = []
         for x in sorted(self.cuda_times.keys()):
             print_name = x
@@ -147,6 +160,8 @@ class RuntimeStatisticsCUDA:
         return str(rows)
 
     def clear_stats(self):
+        if not self.cuda_available:
+            return
         self.cuda_times = dict()
         self.cuda_timer_lists = dict()
         self.cuda_timer_start = dict()
@@ -250,6 +265,7 @@ class CUDAAggregateTimer:
         self.timer_list = []
         self._start = None
         self._end = None
+        self.cuda_available = torch.cuda.is_available()
 
     def get_start(self):
         return self._start
@@ -258,6 +274,8 @@ class CUDAAggregateTimer:
         return self._end
 
     def start(self, timer=None):
+        if not self.cuda_available:
+            return
         if timer is None:
             self._start = torch.cuda.Event(enable_timing=True)
             self._start.record()
@@ -265,6 +283,8 @@ class CUDAAggregateTimer:
             self._start = timer
 
     def end(self, timer=None):
+        if not self.cuda_available:
+            return
         # print(torch.cuda.current_stream())
         # print(stream)
         if timer is None:
@@ -276,6 +296,8 @@ class CUDAAggregateTimer:
         self.timer_list.append((self._start, self._end))
 
     def report(self, do_print=False):
+        if not self.cuda_available:
+            return 0.0
         torch.cuda.synchronize()
         total_time = self.timer_list[0][0].elapsed_time(self.timer_list[0][1])
         for x in self.timer_list[1:]:
