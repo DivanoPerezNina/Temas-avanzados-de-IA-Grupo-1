@@ -1,31 +1,12 @@
 #!/usr/bin/env bash
 
 # Run this script from the project root dir.
-# Usage: ./run/interactive_run.sh <DATASET> <ALGORITHM>
-# Example: ./run/interactive_run.sh AML-Small-HI GINE
-
-DATASET=${1:-""}
-CFG_SUFFIX=${2:-""}
-
-cfg_dir="configs"
-
-if [[ -n "$DATASET" && -n "$CFG_SUFFIX" ]]; then
-    cfg_file="${cfg_dir}/${DATASET}/${DATASET}-${CFG_SUFFIX}.yaml"
-    if [[ ! -f "$cfg_file" ]]; then
-        echo "ERROR: Config does not exist: $cfg_file"
-        exit 1
-    fi
-    out_dir="./results/${DATASET}"
-    echo "Run program: python -m fraudGT.main --cfg ${cfg_file}"
-    echo "  output dir: ${out_dir}"
-    python -m fraudGT.main --cfg "${cfg_file}" --repeat 1 \
-        out_dir "${out_dir}" dataset.dir ./data
-    exit 0
-fi
 
 function run_repeats {
     dataset=$1
     cfg_suffix=$2
+    # The cmd line cfg overrides that will be passed to the main.py,
+    # e.g. 'name_tag test01 gnn.layer_type gcnconv'
     cfg_overrides=$3
 
     cfg_file="${cfg_dir}/${dataset}/${dataset}-${cfg_suffix}.yaml"
@@ -36,15 +17,17 @@ function run_repeats {
     fi
 
     main="python -m fraudGT.main --cfg ${cfg_file}"
-    out_dir="./results/${dataset}"
-    common_params="out_dir ${out_dir} dataset.dir ./data ${cfg_overrides}"
+    out_dir="/nobackup/users/junhong/Logs/results/${dataset}"  # <-- Set the output dir.
+    common_params="out_dir ${out_dir} ${cfg_overrides}"
 
     echo "Run program: ${main}"
     echo "  output dir: ${out_dir}"
 
+    # Run once
     script="${main} --repeat 1 ${common_params}"
     echo $script
     eval $script
+    echo $script
 }
 
 cfg_dir="configs"
