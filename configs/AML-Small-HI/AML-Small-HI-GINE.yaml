@@ -27,7 +27,7 @@ train:
   iter_per_epoch: 64
   batch_size: 2048
   eval_period: 4
-  ckpt_period: 100
+  ckpt_period: 5
   tqdm: True
   persistent_workers: False
   pin_memory: False
