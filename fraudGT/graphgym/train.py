@@ -1,6 +1,7 @@
 import logging
 import os
 import subprocess
+import threading
 import time
 
 import torch
@@ -17,16 +18,20 @@ def _git_push_ckpt(ckpt_path: str):
     rama = os.environ.get('RAMA', '')
     if not (gh_user and gh_token and rama):
         return
-    try:
-        remote = f'https://{gh_user}:{gh_token}@github.com/{gh_user}/Temas-avanzados-de-IA-Grupo-1.git'
-        subprocess.run(['git', 'add', ckpt_path], check=True, capture_output=True)
-        subprocess.run(['git', 'commit', '-m', f'ckpt: {os.path.basename(ckpt_path)}'],
-                       check=True, capture_output=True)
-        subprocess.run(['git', 'push', remote, f'HEAD:{rama}'],
-                       check=True, capture_output=True)
-        logging.info(f'Checkpoint pushed to {rama}: {ckpt_path}')
-    except subprocess.CalledProcessError as e:
-        logging.warning(f'Git push failed: {e.stderr.decode().strip()}')
+
+    def _push():
+        try:
+            remote = f'https://{gh_user}:{gh_token}@github.com/{gh_user}/Temas-avanzados-de-IA-Grupo-1.git'
+            subprocess.run(['git', 'add', ckpt_path], check=True, capture_output=True)
+            subprocess.run(['git', 'commit', '-m', f'ckpt: {os.path.basename(ckpt_path)}'],
+                           check=True, capture_output=True)
+            subprocess.run(['git', 'push', remote, f'HEAD:{rama}'],
+                           check=True, capture_output=True)
+            logging.info(f'Checkpoint pushed to {rama}: {ckpt_path}')
+        except subprocess.CalledProcessError as e:
+            logging.warning(f'Git push failed: {e.stderr.decode().strip()}')
+
+    threading.Thread(target=_push, daemon=True).start()
 
 
 def train_epoch(logger, loader, model, optimizer, scheduler):
@@ -88,16 +93,45 @@ def train(loggers, loaders, model, optimizer, scheduler):
     else:
         logging.info('Start from epoch {}'.format(start_epoch))
 
+    gh_user = os.environ.get('GH_USER', '')
+    gh_token = os.environ.get('GH_TOKEN', '')
+    rama = os.environ.get('RAMA', '')
+    if gh_user and gh_token and rama:
+        logging.info(f'[Git push] Enabled — user={gh_user}, branch={rama}')
+    else:
+        logging.warning('[Git push] Disabled — GH_USER, GH_TOKEN or RAMA not set')
+
+    patience = max(10, cfg.optim.max_epoch // 10)
+    best_val_auc = -1.0
+    epochs_no_improve = 0
+
     num_splits = len(loggers)
     split_names = ['val', 'test']
     for cur_epoch in range(start_epoch, cfg.optim.max_epoch):
         train_epoch(loggers[0], loaders[0], model, optimizer, scheduler)
         loggers[0].write_epoch(cur_epoch)
         if is_eval_epoch(cur_epoch):
+            val_stats = None
             for i in range(1, num_splits):
-                eval_epoch(loggers[i], loaders[i], model,
-                           split=split_names[i - 1])
-                loggers[i].write_epoch(cur_epoch)
+                stats = eval_epoch(loggers[i], loaders[i], model,
+                                   split=split_names[i - 1])
+                epoch_stats = loggers[i].write_epoch(cur_epoch)
+                if split_names[i - 1] == 'val':
+                    val_stats = epoch_stats
+            if val_stats is not None:
+                val_auc = val_stats.get('auc', -1.0)
+                if val_auc > best_val_auc:
+                    best_val_auc = val_auc
+                    epochs_no_improve = 0
+                else:
+                    epochs_no_improve += 1
+                if epochs_no_improve >= patience:
+                    logging.info(
+                        f'Early stopping at epoch {cur_epoch}: '
+                        f'val_auc did not improve for {patience} eval epochs '
+                        f'(best={best_val_auc})'
+                    )
+                    break
         if is_ckpt_epoch(cur_epoch):
             save_ckpt(model, optimizer, scheduler, cur_epoch)
             _git_push_ckpt(os.path.join(cfg.run_dir, 'ckpt', f'{cur_epoch}.ckpt'))
