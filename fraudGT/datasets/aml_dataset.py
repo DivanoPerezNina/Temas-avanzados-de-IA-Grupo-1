@@ -57,6 +57,8 @@ def format_dataset(inPath):
     with open(outPath, 'w') as writer:
         writer.write(header)
         for i in range(raw.nrows):
+            if any(raw[i,col] is None for col in ["Timestamp","From Bank","To Bank","Is Laundering"]):
+                continue
             datetime_object = datetime.strptime(raw[i,"Timestamp"], '%Y/%m/%d %H:%M')
             ts = datetime_object.timestamp()
             day = datetime_object.day
@@ -146,14 +148,14 @@ class AMLDataset(TemporalDataset):
         assert self.name.split('-')[0] in self.dataset_sizes
         assert self.name.split('-')[1] in self.dataset_rates
         super().__init__(root, transform, pre_transform)
-        self.data_dict = torch.load(self.processed_paths[0])
+        self.data_dict = torch.load(self.processed_paths[0], weights_only=False)
         # del self._data['node'].x
         if not reverse_mp:
             for split in ['train', 'val', 'test']:
                 del self.data_dict[split]['node', 'rev_to', 'node']
             # del self.slices['node', 'rev_to', 'node']
         if add_ports:
-            self.ports_dict = torch.load(self.processed_paths[1])
+            self.ports_dict = torch.load(self.processed_paths[1], weights_only=False)
             for split in ['train', 'val', 'test']:
                 self.data_dict[split] = self.add_ports_func(self.data_dict[split], self.ports_dict[split])
 
