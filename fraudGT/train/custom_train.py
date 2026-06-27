@@ -1,5 +1,8 @@
 import copy
 import logging
+import os
+import subprocess
+import threading
 import time
 from tqdm import tqdm
 
@@ -8,7 +11,7 @@ import torch
 import torch.nn.functional as F
 from torch_geometric.data import HeteroData, Data
 from torch_geometric.utils import mask_to_index, index_to_mask
-from fraudGT.graphgym.checkpoint import load_ckpt, save_ckpt, clean_ckpt
+from fraudGT.graphgym.checkpoint import load_ckpt, save_ckpt, save_ckpt_to, clean_ckpt
 from fraudGT.graphgym.config import cfg
 from fraudGT.graphgym.loader import create_loader, get_loader
 from fraudGT.graphgym.loss import compute_loss
@@ -21,6 +24,39 @@ from fraudGT.graphgym.utils.comp_budget import params_count
 from fraudGT.utils import cfg_to_dict, flatten_dict, make_wandb_name
 from fraudGT.utils import (new_optimizer_config, new_scheduler_config)
 from fraudGT.timer import runtime_stats_cuda, is_performance_stats_enabled, enable_runtime_stats, disable_runtime_stats
+
+_git_lock = threading.Lock()
+
+
+def _git_push_ckpt(new_path: str, old_path: str = None):
+    gh_user = os.environ.get('GH_USER', '')
+    gh_token = os.environ.get('GH_TOKEN', '')
+    rama = os.environ.get('RAMA', '')
+    if not (gh_user and gh_token and rama):
+        return
+
+    def _push():
+        with _git_lock:
+            try:
+                remote = f'https://{gh_user}:{gh_token}@github.com/{gh_user}/Temas-avanzados-de-IA-Grupo-1.git'
+                if old_path and old_path != new_path:
+                    subprocess.run(['git', 'rm', '--cached', '-f', old_path],
+                                   check=False, capture_output=True)
+                subprocess.run(['git', 'add', new_path], check=True, capture_output=True)
+                subprocess.run(['git', 'commit', '-m', f'ckpt: {os.path.basename(new_path)}'],
+                               check=True, capture_output=True)
+                subprocess.run(['git', 'push', remote, f'HEAD:{rama}'],
+                               check=True, capture_output=True)
+                msg = f'[Git push] OK: {os.path.basename(new_path)} -> {rama}'
+                print(msg, flush=True)
+                logging.info(msg)
+            except subprocess.CalledProcessError as e:
+                msg = f'[Git push] FAILED: {os.path.basename(new_path)} — {e.stderr.decode().strip()}'
+                print(msg, flush=True)
+                logging.warning(msg)
+
+    threading.Thread(target=_push, daemon=True).start()
+
 
 def check_grad(model):
     for name, param in model.named_parameters():
@@ -252,6 +288,17 @@ def custom_train(loggers, loaders, model, optimizer, scheduler):
     else:
         logging.info('Start from epoch %s', start_epoch)
 
+    gh_user = os.environ.get('GH_USER', '')
+    gh_token = os.environ.get('GH_TOKEN', '')
+    rama = os.environ.get('RAMA', '')
+    if gh_user and gh_token and rama:
+        msg = f'[Git push] Enabled — user={gh_user}, branch={rama}'
+    else:
+        missing = [v for v, k in [('GH_USER', gh_user), ('GH_TOKEN', gh_token), ('RAMA', rama)] if not k]
+        msg = f'[Git push] Disabled — faltan variables: {", ".join(missing)}'
+    print(msg, flush=True)
+    logging.info(msg)
+
     if cfg.wandb.use:
         try:
             import wandb
@@ -269,6 +316,9 @@ def custom_train(loggers, loaders, model, optimizer, scheduler):
     split_names = ['val', 'test']
     full_epoch_times = []
     perf = [[] for _ in range(num_splits)]
+    last_ckpt_path = None
+    best_ckpt_path = None
+    best_val_metric = None
     for cur_epoch in range(start_epoch, cfg.optim.max_epoch):
         start_time = time.perf_counter()
         # enable_runtime_stats()
@@ -296,6 +346,9 @@ def custom_train(loggers, loaders, model, optimizer, scheduler):
         if cfg.train.enable_ckpt and not cfg.train.ckpt_best \
                 and is_ckpt_epoch(cur_epoch):
             save_ckpt(model, optimizer, scheduler, cur_epoch)
+            new_ckpt_path = os.path.join(cfg.run_dir, 'ckpt', f'{cur_epoch}.ckpt')
+            _git_push_ckpt(new_ckpt_path, last_ckpt_path)
+            last_ckpt_path = new_ckpt_path
 
         if cfg.wandb.use:
             run.log(flatten_dict(perf), step=cur_epoch)
@@ -338,6 +391,12 @@ def custom_train(loggers, loaders, model, optimizer, scheduler):
                 save_ckpt(model, optimizer, scheduler, cur_epoch)
                 if cfg.train.ckpt_clean:  # Delete old ckpt each time.
                     clean_ckpt()
+            # Save and push best checkpoint when val metric improves.
+            if cfg.train.enable_ckpt and best_epoch == cur_epoch:
+                new_best_path = os.path.join(cfg.run_dir, 'ckpt', 'best.ckpt')
+                save_ckpt_to(model, optimizer, scheduler, new_best_path)
+                _git_push_ckpt(new_best_path, best_ckpt_path)
+                best_ckpt_path = new_best_path
             logging.info(
                 f"> Epoch {cur_epoch}: took {full_epoch_times[-1]:.1f}s "
                 f"(avg {np.mean(full_epoch_times):.1f}s) | "
