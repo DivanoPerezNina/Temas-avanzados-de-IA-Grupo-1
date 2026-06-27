@@ -1,6 +1,7 @@
 import logging
 import os
 import subprocess
+import threading
 import time
 
 import torch
@@ -17,16 +18,20 @@ def _git_push_ckpt(ckpt_path: str):
     rama = os.environ.get('RAMA', '')
     if not (gh_user and gh_token and rama):
         return
-    try:
-        remote = f'https://{gh_user}:{gh_token}@github.com/{gh_user}/Temas-avanzados-de-IA-Grupo-1.git'
-        subprocess.run(['git', 'add', ckpt_path], check=True, capture_output=True)
-        subprocess.run(['git', 'commit', '-m', f'ckpt: {os.path.basename(ckpt_path)}'],
-                       check=True, capture_output=True)
-        subprocess.run(['git', 'push', remote, f'HEAD:{rama}'],
-                       check=True, capture_output=True)
-        logging.info(f'Checkpoint pushed to {rama}: {ckpt_path}')
-    except subprocess.CalledProcessError as e:
-        logging.warning(f'Git push failed: {e.stderr.decode().strip()}')
+
+    def _push():
+        try:
+            remote = f'https://{gh_user}:{gh_token}@github.com/{gh_user}/Temas-avanzados-de-IA-Grupo-1.git'
+            subprocess.run(['git', 'add', ckpt_path], check=True, capture_output=True)
+            subprocess.run(['git', 'commit', '-m', f'ckpt: {os.path.basename(ckpt_path)}'],
+                           check=True, capture_output=True)
+            subprocess.run(['git', 'push', remote, f'HEAD:{rama}'],
+                           check=True, capture_output=True)
+            logging.info(f'Checkpoint pushed to {rama}: {ckpt_path}')
+        except subprocess.CalledProcessError as e:
+            logging.warning(f'Git push failed: {e.stderr.decode().strip()}')
+
+    threading.Thread(target=_push, daemon=True).start()
 
 
 def train_epoch(logger, loader, model, optimizer, scheduler):
