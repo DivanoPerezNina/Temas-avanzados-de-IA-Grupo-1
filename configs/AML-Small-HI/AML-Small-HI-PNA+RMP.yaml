@@ -29,6 +29,7 @@ train:
   iter_per_epoch: 256
   batch_size: 2048
   eval_period: 4
+  auto_resume: True
   ckpt_period: 2
   tqdm: True
   persistent_workers: True
