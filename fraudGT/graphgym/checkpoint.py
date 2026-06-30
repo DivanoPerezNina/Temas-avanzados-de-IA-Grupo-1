@@ -93,10 +93,17 @@ def get_ckpt_path(epoch: Union[int, str]) -> str:
 
 def get_ckpt_epochs() -> List[int]:
     paths = glob.glob(get_ckpt_path('*'))
-    return sorted([int(osp.basename(path).split('.')[0]) for path in paths])
+    epochs = []
+    for path in paths:
+        stem = osp.basename(path).split('.')[0]
+        if stem.isdigit():
+            epochs.append(int(stem))
+    return sorted(epochs)
 
 
-def get_ckpt_epoch(epoch: int) -> int:
+def get_ckpt_epoch(epoch: Union[int, str]) -> Union[int, str]:
+    if isinstance(epoch, str):
+        return epoch
     if epoch < 0:
         epochs = get_ckpt_epochs()
         epoch = epochs[epoch] if len(epochs) > 0 else 0

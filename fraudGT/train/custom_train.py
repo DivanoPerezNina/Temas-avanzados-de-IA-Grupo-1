@@ -319,6 +319,9 @@ def custom_train(loggers, loaders, model, optimizer, scheduler):
     last_ckpt_path = None
     best_ckpt_path = None
     best_val_metric = None
+    patience = max(10, cfg.optim.max_epoch // 10)
+    best_val_f1 = -1.0
+    epochs_no_improve = 0
     for cur_epoch in range(start_epoch, cfg.optim.max_epoch):
         start_time = time.perf_counter()
         # enable_runtime_stats()
@@ -412,6 +415,20 @@ def custom_train(loggers, loaders, model, optimizer, scheduler):
                             gtl.attention.gamma.requires_grad:
                         logging.info(f"    {gtl.__class__.__name__} {li}: "
                                      f"gamma={gtl.attention.gamma.item()}")
+            # Early stopping driven by val F1-score.
+            val_f1 = val_perf[-1].get('f1', -1.0)
+            if val_f1 > best_val_f1:
+                best_val_f1 = val_f1
+                epochs_no_improve = 0
+            else:
+                epochs_no_improve += 1
+            if epochs_no_improve >= patience:
+                logging.info(
+                    f'Early stopping at epoch {cur_epoch}: '
+                    f'val_f1 did not improve for {patience} eval epochs '
+                    f'(best={best_val_f1:.4f})'
+                )
+                break
     logging.info(f"Avg time per epoch: {np.mean(full_epoch_times):.2f}s")
     logging.info(f"Total train loop time: {np.sum(full_epoch_times) / 3600:.2f}h")
     for logger in loggers:
