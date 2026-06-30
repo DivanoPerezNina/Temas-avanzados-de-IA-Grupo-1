@@ -66,7 +66,7 @@ def set_cfg(cfg):
     cfg.num_threads = 6
 
     # The metric for selecting the best epoch for each run
-    cfg.metric_best = 'auto'
+    cfg.metric_best = 'f1'
 
     # argmax or argmin in aggregating results
     cfg.metric_agg = 'argmax'
