@@ -10,6 +10,7 @@ from fraudGT.graphgym.config import cfg
 MODEL_STATE = 'model_state'
 OPTIMIZER_STATE = 'optimizer_state'
 SCHEDULER_STATE = 'scheduler_state'
+BEST_METRIC = 'best_metric'
 
 
 def load_ckpt(
@@ -69,6 +70,7 @@ def save_ckpt_to(
     optimizer: Optional[torch.optim.Optimizer] = None,
     scheduler: Optional[Any] = None,
     path: str = '',
+    best_metric: Optional[float] = None,
 ):
     r"""Saves the model checkpoint to an explicit path."""
     ckpt: Dict[str, Any] = {MODEL_STATE: model.state_dict()}
@@ -76,8 +78,22 @@ def save_ckpt_to(
         ckpt[OPTIMIZER_STATE] = optimizer.state_dict()
     if scheduler is not None:
         ckpt[SCHEDULER_STATE] = scheduler.state_dict()
+    if best_metric is not None:
+        ckpt[BEST_METRIC] = best_metric
     os.makedirs(os.path.dirname(path), exist_ok=True)
     torch.save(ckpt, path)
+
+
+def load_best_metric(path: str) -> Optional[float]:
+    r"""Reads the stored metric value from a checkpoint, if any.
+
+    Used to carry the "best so far" value across resumed runs, since
+    each run's own bookkeeping resets when training restarts.
+    """
+    if not osp.exists(path):
+        return None
+    ckpt = torch.load(path, weights_only=False, map_location='cpu')
+    return ckpt.get(BEST_METRIC)
 
 
 ###############################################################################

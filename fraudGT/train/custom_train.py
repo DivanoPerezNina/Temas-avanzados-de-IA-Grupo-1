@@ -1,5 +1,6 @@
 import copy
 import logging
+import operator
 import os
 import subprocess
 import threading
@@ -11,7 +12,8 @@ import torch
 import torch.nn.functional as F
 from torch_geometric.data import HeteroData, Data
 from torch_geometric.utils import mask_to_index, index_to_mask
-from fraudGT.graphgym.checkpoint import load_ckpt, save_ckpt, save_ckpt_to, clean_ckpt
+from fraudGT.graphgym.checkpoint import (load_ckpt, save_ckpt, save_ckpt_to,
+                                          load_best_metric, clean_ckpt)
 from fraudGT.graphgym.config import cfg
 from fraudGT.graphgym.loader import create_loader, get_loader
 from fraudGT.graphgym.loss import compute_loss
@@ -317,8 +319,11 @@ def custom_train(loggers, loaders, model, optimizer, scheduler):
     full_epoch_times = []
     perf = [[] for _ in range(num_splits)]
     last_ckpt_path = None
-    best_ckpt_path = None
-    best_val_metric = None
+    best_ckpt_path = os.path.join(cfg.run_dir, 'ckpt', 'best.ckpt')
+    # Carry the best metric value across resumed runs (each run's own
+    # `perf` bookkeeping resets, so without this every resume would
+    # treat its first eval epoch as "best" and overwrite a better ckpt).
+    best_val_metric = load_best_metric(best_ckpt_path)
     patience = max(10, cfg.optim.max_epoch // 10)
     best_val_f1 = -1.0
     epochs_no_improve = 0
@@ -360,9 +365,12 @@ def custom_train(loggers, loaders, model, optimizer, scheduler):
         if is_eval_epoch(cur_epoch, start_epoch):
             best_epoch = np.array([vp['loss'] for vp in val_perf]).argmin()
             best_train = best_val = best_test = ""
+            m = 'loss'
+            better = operator.lt
             if cfg.metric_best != 'auto':
                 # Select again based on val perf of `cfg.metric_best`.
                 m = cfg.metric_best
+                better = operator.gt if cfg.metric_agg == 'argmax' else operator.lt
                 best_epoch = getattr(np.array([vp[m] for vp in val_perf]),
                                      cfg.metric_agg)()
                 if m in perf[0][best_epoch]:
@@ -388,16 +396,24 @@ def custom_train(loggers, loaders, model, optimizer, scheduler):
                     run.log(bstats, step=cur_epoch)
                     run.summary["full_epoch_time_avg"] = np.mean(full_epoch_times)
                     run.summary["full_epoch_time_sum"] = np.sum(full_epoch_times)
+            # Compare against the best value seen so far (loaded from
+            # best.ckpt on resume, not just this session's val_perf), so a
+            # resumed run can't overwrite a genuinely better checkpoint.
+            cur_val_metric = val_perf[-1].get(m)
+            is_best = cur_val_metric is not None and (
+                best_val_metric is None or better(cur_val_metric, best_val_metric))
+            if is_best:
+                best_val_metric = cur_val_metric
             # Checkpoint the best epoch params (if enabled).
-            if cfg.train.enable_ckpt and cfg.train.ckpt_best and \
-                    best_epoch == cur_epoch:
+            if cfg.train.enable_ckpt and cfg.train.ckpt_best and is_best:
                 save_ckpt(model, optimizer, scheduler, cur_epoch)
                 if cfg.train.ckpt_clean:  # Delete old ckpt each time.
                     clean_ckpt()
             # Save and push best checkpoint when val metric improves.
-            if cfg.train.enable_ckpt and best_epoch == cur_epoch:
+            if cfg.train.enable_ckpt and is_best:
                 new_best_path = os.path.join(cfg.run_dir, 'ckpt', 'best.ckpt')
-                save_ckpt_to(model, optimizer, scheduler, new_best_path)
+                save_ckpt_to(model, optimizer, scheduler, new_best_path,
+                             best_metric=best_val_metric)
                 _git_push_ckpt(new_best_path, best_ckpt_path)
                 best_ckpt_path = new_best_path
             logging.info(
