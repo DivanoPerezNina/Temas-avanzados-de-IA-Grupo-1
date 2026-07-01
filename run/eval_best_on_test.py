@@ -16,6 +16,13 @@ Usage:
 """
 import argparse
 import os
+import sys
+
+# Allow running this script directly (e.g. `python run/eval_best_on_test.py`)
+# from any working directory: the `fraudGT` package lives at the repo root,
+# one level above this file, and is only importable via `python -m
+# fraudGT.main` normally -- there is no `pip install -e .` for it.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import torch
 from torch_geometric import seed_everything
