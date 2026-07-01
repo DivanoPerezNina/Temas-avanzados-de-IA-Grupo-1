@@ -41,6 +41,7 @@ from fraudGT.graphgym.checkpoint import MODEL_STATE, BEST_METRIC
 from fraudGT.graphgym.config import cfg, set_cfg, assert_cfg
 from fraudGT.graphgym.loader import create_loader
 from fraudGT.graphgym.model_builder import create_model
+from fraudGT.graphgym.utils.comp_budget import params_count
 from fraudGT.graphgym.utils.device import auto_select_device
 from fraudGT.logger import create_logger
 from fraudGT.utils import custom_set_out_dir
@@ -87,6 +88,7 @@ def main():
 
     loaders, dataset = create_loader(returnDataset=True)
     model = create_model(dataset=dataset)
+    cfg.params = params_count(model)
 
     ckpt = torch.load(ckpt_path, weights_only=False, map_location=torch.device(cfg.device))
     model.load_state_dict(ckpt[MODEL_STATE])
